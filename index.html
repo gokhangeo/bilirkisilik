@@ -338,10 +338,16 @@
         }
 
         function applyManualDebts() {
-            if(document.activeElement && document.activeElement.classList.contains('manual-debt-input')) {
-                document.activeElement.blur();
-            }
-            renderTable();
+            // Ekranda görünen tüm manuel giriş kutularını tara ve değerlerini anında sisteme kaydet
+            const inputs = document.querySelectorAll('.manual-debt-input');
+            inputs.forEach(input => {
+                const normName = input.getAttribute('data-name');
+                const val = parseFloat(input.value) || 0;
+                const person = parsedData.find(p => p.normName === normName);
+                if (person) person.manuelEksik = val;
+            });
+            renderTable(); // Tabloyu yeni değerlerle baştan çiz
+            showToast("Tüm manuel girişler hesaba dahil edildi.", "success");
         }
 
         function toggleAll(source) {
@@ -692,7 +698,10 @@
             if(filteredData.length === 0) { body.innerHTML = `<tr><td colspan="30" class="p-8 text-center text-slate-400 italic">Sonuç bulunamadı.</td></tr>`; return; }
 
             let tBrut = 0, tPay = 0, tBanka = 0, tOekiEksik = 0, totalBankAll = 0;
+            let htmlContent = '';
+            let missingHtmlContent = '';
 
+            // 1. ANA TABLO İÇERİĞİNİ OLUŞTUR
             validData.forEach((p) => {
                 if (p.brutTotal === 0 && Object.keys(p.bankAylik).length > 0) return; 
 
@@ -704,7 +713,7 @@
                 const kalan = pay + oEksik - totalBankRow; 
                 tBrut += p.brutTotal; tPay += pay; tBanka += totalBankRow; tOekiEksik += oEksik; totalBankAll += totalBankRow;
                 
-                body.innerHTML += `<tr class="hover:bg-indigo-50 transition-colors bg-white" data-name="${p.originalName}">
+                htmlContent += `<tr class="hover:bg-indigo-50 transition-colors bg-white" data-name="${p.originalName}">
                     <td class="px-2 py-3 text-center border-r border-slate-100 no-print-col"><input type="checkbox" class="row-checkbox custom-checkbox mt-1"></td>
                     <td class="px-5 py-4 font-black text-slate-800 text-xs border-r border-slate-100">${p.originalName}</td>
                     <td class="px-3 py-3 border-r border-slate-200 text-center font-black text-slate-700 bg-slate-100/50">${formatTLShort(p.brutTotal)}</td>
@@ -714,16 +723,15 @@
                     <td class="px-3 py-3 border-r border-slate-200 text-center font-black text-emerald-700 bg-emerald-50">${formatTLShort(totalBankRow)}</td>
                     <td class="px-3 py-3 border-r border-amber-200 text-center bg-amber-50">
                         <span class="print-only font-black text-amber-700 text-xs">${formatTLShort(oEksik)}</span>
-                        <input type="number" onblur="saveSingleInput(this)" class="manual-debt-input no-print w-16 text-center border border-amber-300 rounded py-1 text-xs font-bold text-amber-800 outline-none focus:ring-2 focus:ring-amber-500 bg-white" data-name="${p.normName}" value="${oEksik || ''}" placeholder="0">
+                        <input type="number" onblur="saveSingleInput(this)" onkeydown="if(event.key==='Enter') applyManualDebts()" class="manual-debt-input no-print w-16 text-center border border-amber-300 rounded py-1 text-xs font-bold text-amber-800 outline-none focus:ring-2 focus:ring-amber-500 bg-white" data-name="${p.normName}" value="${oEksik || ''}" placeholder="0">
                     </td>
                     <td class="px-4 py-3 text-center bg-slate-50"><span class="final-debt-val ${kalan > 50 ? 'text-rose-600' : 'text-slate-400'}">${formatTLShort(kalan > 0 ? kalan : 0)}</span><span class="block w-full mt-1 ${Math.abs(kalan) <= 25 ? 'status-paid' : (totalBankRow > 0 ? 'status-warning' : 'status-debt')} uppercase">${Math.abs(kalan) <= 25 ? 'TAMAMLANDI' : (totalBankRow > 0 ? 'EKSİK' : 'ÖDEME YOK')}</span></td>
                 </tr>`;
             });
 
-            body.innerHTML += `<tr class="bg-slate-200 border-t-2 border-slate-300"><td colspan="2" class="px-5 py-4 font-black text-slate-900 text-right uppercase border-r border-slate-300">GENEL TOPLAM</td><td class="px-3 py-4 font-black text-slate-800 text-center border-r border-slate-300">${formatTLShort(tBrut)}</td><td class="px-3 py-4 text-center border-r border-slate-300">-</td><td class="px-3 py-4 font-black text-indigo-800 text-center border-r border-slate-300 bg-indigo-100">${formatTLShort(tPay)}</td>${displayedBankMonths.map(()=>'<td class="border-r border-slate-300"></td>').join('')}<td class="px-3 py-4 font-black text-emerald-800 text-center border-r border-slate-300 bg-emerald-100">${formatTLShort(tBanka)}</td><td class="px-3 py-4 font-black text-amber-800 text-center border-r border-amber-300 bg-amber-200">${formatTLShort(tOekiEksik)}</td><td class="px-4 py-4 font-black text-rose-800 text-center bg-rose-200">${formatTLShort(Math.max(0, tPay + tOekiEksik - tBanka))}</td></tr>`;
-
+            // 2. KIRMIZI LİSTE (Reddiyatı 0 olan herkes)
             if (missingData.length > 0) {
-                body.innerHTML += `<tr class="bg-rose-600 text-white border-t-8 border-rose-800"><td colspan="${9 + displayedBankMonths.length}" class="px-5 py-3 font-black text-center uppercase tracking-widest text-sm">🔴 REDDİYATI BULUNMAYAN BİLİRKİŞİLER</td></tr>`;
+                missingHtmlContent += `<tr class="bg-rose-600 text-white border-t-8 border-rose-800"><td colspan="${9 + displayedBankMonths.length}" class="px-5 py-3 font-black text-center uppercase tracking-widest text-sm">🔴 REDDİYATI BULUNMAYAN BİLİRKİŞİLER</td></tr>`;
                 missingData.forEach((p) => {
                     let bankaCells = '', totalBankRow = 0;
                     displayedBankMonths.forEach(m => { const val = p.bankAylik[m] || 0; totalBankRow += val; bankaCells += `<td class="px-3 py-3 border-r border-rose-200 text-center font-bold text-rose-700 bg-rose-50">${val > 0 ? formatTLShort(val) : '-'}</td>`; });
@@ -731,8 +739,9 @@
                     const kalan = oEksik - totalBankRow;
                     totalBankAll += totalBankRow;
                     tOekiEksik += oEksik;
+                    tBanka += totalBankRow; // Kırmızı listedekilerin banka girişi artık genel toplama eklenecek
 
-                    body.innerHTML += `<tr class="bg-rose-100 hover:bg-rose-200 transition-colors" data-name="${p.originalName}">
+                    missingHtmlContent += `<tr class="bg-rose-100 hover:bg-rose-200 transition-colors" data-name="${p.originalName}">
                         <td class="px-2 py-3 text-center border-r border-rose-200 no-print-col"><input type="checkbox" class="row-checkbox custom-checkbox mt-1"></td>
                         <td class="px-5 py-4 font-black text-rose-900 text-xs border-r border-rose-200">${p.originalName}</td>
                         <td class="px-3 py-3 border-r border-rose-200 text-center font-black text-rose-400">-</td>
@@ -742,7 +751,7 @@
                         <td class="px-3 py-3 border-r border-rose-200 text-center font-black text-rose-800 bg-rose-200/50">${formatTLShort(totalBankRow)}</td>
                         <td class="px-3 py-3 border-r border-rose-300 text-center bg-rose-50">
                             <span class="print-only font-black text-rose-800 text-xs">${formatTLShort(oEksik)}</span>
-                            <input type="number" onblur="saveSingleInput(this)" class="manual-debt-input no-print w-16 text-center border border-rose-300 rounded py-1 text-xs font-bold text-rose-800 outline-none focus:ring-2 focus:ring-rose-500 bg-white" data-name="${p.normName}" value="${oEksik || ''}" placeholder="0">
+                            <input type="number" onblur="saveSingleInput(this)" onkeydown="if(event.key==='Enter') applyManualDebts()" class="manual-debt-input no-print w-16 text-center border border-rose-300 rounded py-1 text-xs font-bold text-rose-800 outline-none focus:ring-2 focus:ring-rose-500 bg-white" data-name="${p.normName}" value="${oEksik || ''}" placeholder="0">
                         </td>
                         <td class="px-4 py-3 text-center bg-rose-50 font-black text-rose-700 text-[10px] uppercase">
                             <span class="final-debt-val block ${kalan > 50 ? 'text-rose-600' : 'text-rose-400'}">${formatTLShort(kalan > 0 ? kalan : 0)}</span>
@@ -751,6 +760,12 @@
                     </tr>`;
                 });
             }
+            
+            // 3. ALT TOPLAM (Tüm işlemler bittikten sonra EN ALTA ekleniyor)
+            let totalHtmlContent = `<tr class="bg-slate-200 border-t-8 border-slate-400"><td colspan="2" class="px-5 py-4 font-black text-slate-900 text-right uppercase border-r border-slate-400">GENEL TOPLAM</td><td class="px-3 py-4 font-black text-slate-800 text-center border-r border-slate-300">${formatTLShort(tBrut)}</td><td class="px-3 py-4 text-center border-r border-slate-300">-</td><td class="px-3 py-4 font-black text-indigo-800 text-center border-r border-slate-300 bg-indigo-100">${formatTLShort(tPay)}</td>${displayedBankMonths.map(()=>'<td class="border-r border-slate-300"></td>').join('')}<td class="px-3 py-4 font-black text-emerald-800 text-center border-r border-slate-300 bg-emerald-100">${formatTLShort(tBanka)}</td><td class="px-3 py-4 font-black text-amber-800 text-center border-r border-amber-400 bg-amber-200">${formatTLShort(tOekiEksik)}</td><td class="px-4 py-4 font-black text-rose-800 text-center bg-rose-200">${formatTLShort(Math.max(0, tPay + tOekiEksik - tBanka))}</td></tr>`;
+
+            // Hepsini birleştirip ekrana bas
+            body.innerHTML = htmlContent + missingHtmlContent + totalHtmlContent;
 
             document.getElementById('kpi-brut').innerText = formatTL(tBrut); 
             document.getElementById('kpi-pay').innerText = formatTL(tPay);
