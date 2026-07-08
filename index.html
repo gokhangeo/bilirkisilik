@@ -282,18 +282,20 @@
 
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
 
-        const taxRatios = {
-            "MEHMET AKDENIZ": 0.211, "SITKI KIZILOLUK": 0.165, "MUMIN AKDOGAN": 0.155,
-            "EMINE ALANLI KIRCILI": 0.176, "OMER CEVIK": 0.156, "MUSTAFA BICAK": 0.158,
-            "MAHMUT GOK": 0.171, "MAHMUT MELEMEN": 0.157, "MURAT AKAYDIN": 0.153,
-            "HALIL CETINKAYA": 0.131, "MURAT SARI": 0.118, "KAYHAN KARTPAK": 0.157,
-            "SABAHATTIN YAMAN": 0.096, "SERDAR SAHIN": 0.151, "NEJDET TULUKCU": 0.157,
-            "HIKMET GULCAN": 0.157, "AHMET TURKOGLU": 0.151, "MEHTAP AKDOGAN": 0.157,
-            "LOKMAN ALKAN": 0.157, "MEHMET CEYLAN": 0.157, "ENGIN UGURLU": 0.158,
-            "SULEYMAN YILMAZ": 0.060, "SEKIP KORKMAZ": 0.157, "MUSTAFA BAYSAL": 0.150, 
-            "CANER OKAY": 0.154, "AHMET CELIK": 0.150, "ALI BASKURT": 0.150, 
-            "CIHAN KARA": 0.150, "AYHAN KARADAYI": 0.119
-        };
+        // Artık vergi oranlarına gerek yok, direkt PDF'ten net tutarı hesaplayacağız. 
+        // İsimleri sadece ekstreden isim bulamazsa diye yedek liste olarak tutuyoruz.
+        const knownNamesList = [
+            "MEHMET AKDENIZ", "SITKI KIZILOLUK", "MUMIN AKDOGAN",
+            "EMINE ALANLI KIRCILI", "OMER CEVIK", "MUSTAFA BICAK",
+            "MAHMUT GOK", "MAHMUT MELEMEN", "MURAT AKAYDIN",
+            "HALIL CETINKAYA", "MURAT SARI", "KAYHAN KARTPAK",
+            "SABAHATTIN YAMAN", "SERDAR SAHIN", "NEJDET TULUKCU",
+            "HIKMET GULCAN", "AHMET TURKOGLU", "MEHTAP AKDOGAN",
+            "LOKMAN ALKAN", "MEHMET CEYLAN", "ENGIN UGURLU",
+            "SULEYMAN YILMAZ", "SEKIP KORKMAZ", "MUSTAFA BAYSAL", 
+            "CANER OKAY", "AHMET CELIK", "ALI BASKURT", 
+            "CIHAN KARA", "AYHAN KARADAYI"
+        ];
 
         const normalizeString = (str) => {
             if(!str) return '';
@@ -346,7 +348,7 @@
             document.getElementById('loadingText').innerText = "EKSTRE KONTROL EDİLİYOR...";
             
             try {
-                let knownNames = Object.keys(taxRatios);
+                let knownNames = [...knownNamesList];
                 const pdfFiles = document.getElementById('pdfFiles').files;
                 
                 // Eğer PDF yüklenmişse oradaki isimleri de okuyup eşleştirme havuzuna katalım
@@ -461,9 +463,29 @@
                     let nameMatch = cleanText.match(/Adı:\s*([A-ZÇĞİÖŞÜ ]+?)\s+(?:Reddiyat|T\.C|Bilirkişi|YIL)/i);
                     let personName = nameMatch && nameMatch[1] ? nameMatch[1].trim() : file.name.replace(/_\d+/g, '').replace('.pdf', '').replace(/[^a-zA-ZçğıöşüÇĞİÖŞÜ ]/g, ' ').trim().toLocaleUpperCase('tr-TR');
                     const normName = normalizeString(personName);
-                    if(!personnelMap[normName]) personnelMap[normName] = { originalName: personName, normName: normName, brutTotal: 0, bankAylik: {} };
-                    let totalMatch = cleanText.match(/Genel Toplam[^\d]*([\d]+[.,][\d.,]+)/i);
-                    if (totalMatch && totalMatch[1]) personnelMap[normName].brutTotal += parseFloat(totalMatch[1].replace(/\./g, '').replace(',', '.'));
+                    
+                    // netTotal değişkenini sisteme dahil ettik
+                    if(!personnelMap[normName]) personnelMap[normName] = { originalName: personName, normName: normName, brutTotal: 0, netTotal: 0, bankAylik: {} };
+                    
+                    // GENEL TOPLAM satırındaki 3 sayıyı da (Brüt, Gelir Vergisi, Damga Vergisi) yakala
+                    let totalMatch = cleanText.match(/Genel Toplam[^\d]*([\d]+(?:[.,]\d+)*)[^\d]*([\d]+(?:[.,]\d+)*)[^\d]*([\d]+(?:[.,]\d+)*)/i);
+                    
+                    if (totalMatch) {
+                        let brut = parseFloat(totalMatch[1].replace(/\./g, '').replace(',', '.'));
+                        let gelirV = parseFloat(totalMatch[2].replace(/\./g, '').replace(',', '.'));
+                        let damgaV = parseFloat(totalMatch[3].replace(/\./g, '').replace(',', '.'));
+                        
+                        personnelMap[normName].brutTotal += brut;
+                        personnelMap[normName].netTotal += (brut - gelirV - damgaV); // Vergilier düşüldü, net bulundu.
+                    } else {
+                        // Eğer tablo formatı farklıysa ve sadece 1 sayı (Brüt) bulabilirse varsayılan kesinti yedek planı
+                        let singleMatch = cleanText.match(/Genel Toplam[^\d]*([\d]+(?:[.,]\d+)*)/i);
+                        if (singleMatch) {
+                            let brut = parseFloat(singleMatch[1].replace(/\./g, '').replace(',', '.'));
+                            personnelMap[normName].brutTotal += brut;
+                            personnelMap[normName].netTotal += brut * 0.842; // Yaklaşık eski %15.8 kesinti
+                        }
+                    }
                 }
                 
                 activeBankMonths.clear();
@@ -518,11 +540,11 @@
                             }
                             
                             if (!matchedPerson) {
-                                for (let key in taxRatios) {
-                                    let keyNoSpace = key.replace(/\s+/g, '');
+                                for (let name of knownNamesList) {
+                                    let keyNoSpace = name.replace(/\s+/g, '');
                                     if (normDescNoSpace.includes(keyNoSpace)) {
-                                        personnelMap[key] = { originalName: key, normName: key, brutTotal: 0, bankAylik: {} };
-                                        matchedPerson = personnelMap[key];
+                                        personnelMap[name] = { originalName: name, normName: name, brutTotal: 0, netTotal: 0, bankAylik: {} };
+                                        matchedPerson = personnelMap[name];
                                         break;
                                     }
                                 }
@@ -584,8 +606,8 @@
 
             // 1. ANA TABLO
             validData.forEach((p) => {
-                const ratio = taxRatios[p.normName] || 0.158;
-                const net = p.brutTotal * (1 - ratio), pay = net * 0.30;
+                const net = p.netTotal; // Artık vergi hesabı yok, PDF'ten hazır geldi!
+                const pay = net * 0.30;
                 let bankaCells = '', totalBankRow = 0;
                 displayedBankMonths.forEach(m => { const val = p.bankAylik[m] || 0; totalBankRow += val; bankaCells += `<td class="px-3 py-3 border-r border-slate-100 text-center font-bold text-emerald-600 bg-emerald-50/30">${val > 0 ? formatTLShort(val) : '-'}</td>`; });
                 const oEksik = p.manuelEksik || 0;
@@ -671,8 +693,16 @@
             if(parsedData.length === 0) return;
             let exportArr = []; let sortedMonths = Array.from(activeBankMonths).sort().filter(m => enabledMonths.has(m));
             parsedData.forEach(p => {
-                const ratio = taxRatios[p.normName] || 0.158, net = p.brutTotal * (1 - ratio), pay = net * 0.30;
-                let row = { "Bilirkişi Adı": p.originalName, "T. Reddiyat (Brüt)": p.brutTotal, "Beklenen %30 Pay": pay };
+                const net = p.netTotal;
+                const pay = net * 0.30;
+                
+                let row = { 
+                    "Bilirkişi Adı": p.originalName, 
+                    "T. Reddiyat (Brüt)": p.brutTotal, 
+                    "T. Reddiyat (Net)": parseFloat(net.toFixed(2)), 
+                    "Beklenen %30 Pay": parseFloat(pay.toFixed(2)) 
+                };
+                
                 let tBank = 0; sortedMonths.forEach(m => { const v = p.bankAylik[m] || 0; tBank += v; row[`${aylarMap[m]||m} Banka`] = v; });
                 row["Toplam Banka"] = tBank; 
                 row["Önceki Eksik (Manuel)"] = p.manuelEksik || 0;
