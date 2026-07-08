@@ -156,17 +156,61 @@
 
         <div id="results-container" style="display: none;">
             <section class="max-w-[95rem] mx-auto grid grid-cols-2 md:grid-cols-4 gap-6 mb-8 no-print">
+                <div class="card !p-5 border-b-8 border-slate-700">
+                    <span class="text-xs font-black text-slate-400 uppercase tracking-widest text-[10px]">HESAPLANAN TOPLAM BRÜT</span>
+                    <p id="kpi-brut" class="text-2xl font-black text-slate-800 mt-1">₺0</p>
                 </div>
+                <div class="card !p-5 border-b-8 border-indigo-500">
+                    <span class="text-xs font-black text-slate-400 uppercase tracking-widest text-[10px]">BEKLENEN TOPLAM PAY (%30)</span>
+                    <p id="kpi-pay" class="text-2xl font-black text-indigo-700 mt-1">₺0</p>
+                </div>
+                <div class="card !p-5 border-b-8 border-emerald-500">
+                    <span class="text-xs font-black text-slate-400 uppercase tracking-widest text-[10px]">AKTİF BANKA GİRİŞİ (TÜMÜ)</span>
+                    <p id="kpi-bank" class="text-2xl font-black text-emerald-600 mt-1">₺0</p>
+                </div>
+                <div class="card !p-5 border-b-8 border-rose-500">
+                    <span class="text-xs font-black text-slate-400 uppercase tracking-widest text-[10px]">GÜNCEL KALAN AÇIK</span>
+                    <p id="kpi-kalan" class="text-2xl font-black text-rose-600 mt-1">₺0</p>
+                </div>
+            </section>
 
-                <div class="table-responsive" id="captureContainer">
-                    <table id="mainTable" class="w-full text-left border-collapse text-center">
-                        <thead id="tableHead" class="bg-slate-900 text-white uppercase text-[10px] sticky top-0 z-10 text-center tracking-wider"></thead>
-                        <tbody id="tableBody" class="divide-y divide-slate-100 font-semibold text-sm bg-white"></tbody>
-                    </table>
+            <!-- DÖNEM SEÇİCİ -->
+            <section class="max-w-[95rem] mx-auto mb-6 no-print" id="month-selector-card">
+                <div class="bg-indigo-50 p-6 rounded-2xl border border-indigo-100 shadow-sm">
+                    <h3 class="text-indigo-900 font-black text-xs uppercase mb-4 tracking-widest flex items-center gap-2">
+                        🗓️ Hesaplamaya Dahil Edilecek Banka Dönemleri
+                    </h3>
+                    <div id="month-toggles" class="flex flex-wrap gap-6"></div>
                 </div>
-            </div>
-        </section>
-    </div>
+            </section>
+
+            <section class="max-w-[95rem] mx-auto" id="main-section">
+                <div class="card overflow-hidden !p-0 border-t-8 border-slate-900 shadow-2xl bg-white relative">
+                    <div id="export-header-title" class="hidden p-8 bg-white border-b-2 border-slate-100 text-center">
+                        <h1 class="text-3xl font-black text-slate-900 uppercase italic tracking-tighter">MERSİN KADASTRO MÜDÜRLÜĞÜ</h1>
+                        <p class="text-sm font-bold text-slate-500 mt-1">Kişisel Pay Denetim Raporu</p>
+                        <div class="w-24 h-1.5 bg-indigo-600 mx-auto mt-4 rounded-full"></div>
+                    </div>
+
+                    <div class="p-6 bg-slate-50 border-b flex flex-col md:flex-row justify-between items-center gap-4 no-print-col">
+                        <div>
+                            <h2 class="text-xl font-black text-slate-800 uppercase tracking-tighter">Detaylı Analiz Sonuçları</h2>
+                        </div>
+                        <div class="flex items-center gap-3">
+                            <button onclick="applyManualDebts()" class="btn-action bg-amber-500 hover:bg-amber-600 shadow-lg !py-2 !px-4 mr-2">🔄 GİRİŞLERİ AÇIĞA DAHİL ET</button>
+                            <input type="text" id="nameFilter" oninput="renderTable()" placeholder="🔍 Personel Ara..." class="search-input">
+                        </div>
+                    </div>
+
+                    <div class="table-responsive" id="captureContainer">
+                        <table id="mainTable" class="w-full text-left border-collapse text-center">
+                            <thead id="tableHead" class="bg-slate-900 text-white uppercase text-[10px] sticky top-0 z-10 text-center tracking-wider"></thead>
+                            <tbody id="tableBody" class="divide-y divide-slate-100 font-semibold text-sm bg-white"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+        </div>
     </div> <!-- APP CONTAINER BİTİŞİ -->
 
     <script>
