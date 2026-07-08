@@ -138,7 +138,16 @@
                     📂 Veri Yükleme ve Analiz Merkezi
                 </h2>
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
-                    <div class="upload-area p-6 rounded-xl relative border-indigo-200">
+                    <!-- 1. Kutu: PDF Yükleme -->
+                    <div class="upload-area p-6 rounded-xl relative border-indigo-200 flex flex-col justify-between h-full">
+                        <div>
+                            <label class="block text-sm font-black text-indigo-800 mb-2 uppercase">1. Reddiyat PDF Dosyaları</label>
+                            <p class="text-xs text-slate-500 mb-4 font-semibold">Tüm reddiyat PDF'lerini topluca seçin.</p>
+                        </div>
+                        <input type="file" id="pdfFiles" multiple accept=".pdf" class="block w-full text-sm text-slate-500 file:mr-4 file:py-2.5 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-black file:bg-indigo-100 file:text-indigo-700 hover:file:bg-indigo-200 transition-all cursor-pointer">
+                    </div>
+                    
+                    <!-- 2. Kutu: Banka Ekstresi Yükleme -->
                     <div class="upload-area p-6 rounded-xl relative border-emerald-200 flex flex-col justify-between h-full">
                         <div>
                             <label class="block text-sm font-black text-emerald-800 mb-2 uppercase">2. Banka Hesap Ekstresi</label>
@@ -147,6 +156,7 @@
                         <input type="file" id="excelFile" accept=".csv, .xlsx, .xls" class="block w-full text-sm text-slate-500 file:mr-4 file:py-2.5 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-black file:bg-emerald-100 file:text-emerald-700 hover:file:bg-emerald-200 transition-all cursor-pointer">
                     </div>
 
+                    <!-- 3. Kutu: Kayıtlı Hesap Yükleme -->
                     <div class="upload-area p-6 rounded-xl relative border-blue-200 bg-blue-50/50 flex flex-col justify-between h-full">
                         <div>
                             <label class="block text-sm font-black text-blue-800 mb-2 uppercase">3. Kayıtlı Hesap Yükle (Yedek)</label>
