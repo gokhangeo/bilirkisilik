@@ -28,6 +28,8 @@
         #loadingOverlay { display: none; position: fixed; inset: 0; background: rgba(15, 23, 42, 0.9); z-index: 9999; align-items: center; justify-content: center; color: white; flex-direction: column; gap: 1.5rem; }
         .spinner { width: 50px; height: 50px; border: 5px solid #334155; border-top: 5px solid #818cf8; border-radius: 50%; animation: spin 1s linear infinite; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(3600deg); } }
+        @keyframes pulseAlert { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.5; transform: scale(1.05); color: #ef4444; } }
+        .pulse-text { animation: pulseAlert 1.5s infinite; font-weight: 900; }
         .custom-checkbox { width: 1.2rem; height: 1.2rem; cursor: pointer; accent-color: #6366f1; border-radius: 4px; }
         .upload-area { border: 2px dashed #cbd5e1; background: #f8fafc; transition: all 0.2s; }
         .upload-area:hover { border-color: #6366f1; background: #eef2ff; }
@@ -88,9 +90,6 @@
                 <p class="text-slate-500 mt-1 text-lg font-medium uppercase tracking-tight italic">Dinamik Pay Denetim ve Mutabakat Sistemi</p>
             </div>
             <div class="flex gap-3 flex-wrap justify-center">
-                <button onclick="saveSessionToExcel()" class="btn-action bg-blue-600 hover:bg-blue-700 shadow-lg" id="btnSaveSession" style="display: none;">
-                    💾 HESABI KAYDET
-                </button>
                 <button onclick="downloadSelectedRows()" class="btn-action bg-amber-500 hover:bg-amber-600 shadow-lg" id="btnJpeg" style="display: none;">
                     📸 SEÇİLENLERİ JPEG İNDİR
                 </button>
@@ -192,6 +191,10 @@
                             <h2 class="text-xl font-black text-slate-800 uppercase tracking-tighter">Detaylı Analiz Sonuçları</h2>
                         </div>
                         <div class="flex items-center gap-3">
+                            <span class="text-rose-600 pulse-text text-xs mr-2 no-print" id="lblSaveWarning" style="display: none;">🔥 HESABI KAYDETMEYİ UNUTMAYIN!</span>
+                            <button onclick="saveSessionToExcel()" class="btn-action bg-blue-600 hover:bg-blue-700 shadow-lg !py-2 !px-4 mr-2" id="btnSaveSession" style="display: none;">
+                                💾 HESABI KAYDET
+                            </button>
                             <button onclick="applyManualDebts()" class="btn-action bg-amber-500 hover:bg-amber-600 shadow-lg !py-2 !px-4 mr-2">🔄 GİRİŞLERİ AÇIĞA DAHİL ET</button>
                             <input type="text" id="nameFilter" oninput="renderTable()" placeholder="🔍 Personel Ara..." class="search-input">
                         </div>
@@ -368,6 +371,7 @@
                 document.getElementById('btnExport').style.display = 'inline-flex';
                 document.getElementById('btnJpeg').style.display = 'inline-flex';
                 document.getElementById('btnSaveSession').style.display = 'inline-flex';
+                document.getElementById('lblSaveWarning').style.display = 'inline-block';
                 
                 renderTable();
                 showToast("Kayıtlı hesap başarıyla yüklendi.", "success");
@@ -597,6 +601,7 @@
                 document.getElementById('btnExport').style.display = 'inline-flex';
                 document.getElementById('btnJpeg').style.display = 'inline-flex';
                 document.getElementById('btnSaveSession').style.display = 'inline-flex';
+                document.getElementById('lblSaveWarning').style.display = 'inline-block';
                 renderTable();
             } catch (error) { showToast("Hata: " + error.message, "error"); } finally { overlay.style.display = 'none'; }
         }
