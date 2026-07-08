@@ -101,7 +101,7 @@
         </div>
     </div>
 
-    <!-- ANA UYGULAMA CONTAINER (Varsayılan olarak gizli) -->
+    <!-- ANA UYGULAMA CONTAINER -->
     <div id="app-container" style="display: none; opacity: 0; transition: opacity 0.5s ease-in-out;">
         
         <!-- Yükleme Animasyonu Overlay -->
@@ -146,8 +146,12 @@
                         <input type="file" id="excelFile" accept=".csv, .xlsx, .xls" class="block w-full text-sm text-slate-500 file:mr-4 file:py-2.5 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-black file:bg-emerald-100 file:text-emerald-700 hover:file:bg-emerald-200 transition-all cursor-pointer">
                     </div>
                 </div>
-                <div class="mt-8 text-right">
-                    <button onclick="processFiles()" class="btn-action bg-indigo-600 hover:bg-indigo-700 !px-8 !py-4 !text-base shadow-xl">
+                
+                <div class="mt-8 flex flex-col sm:flex-row justify-end gap-4">
+                    <button onclick="verifyBankStatement()" class="btn-action bg-slate-600 hover:bg-slate-700 !px-6 !py-4 !text-base shadow-xl text-center justify-center">
+                        🔍 EKSTREYİ KONTROL ET (EXCEL)
+                    </button>
+                    <button onclick="processFiles()" class="btn-action bg-indigo-600 hover:bg-indigo-700 !px-8 !py-4 !text-base shadow-xl text-center justify-center">
                         ⚙️ SİSTEME YÜKLE VE ANALİZ ET
                     </button>
                 </div>
@@ -214,7 +218,7 @@
     </div> <!-- APP CONTAINER BİTİŞİ -->
 
     <script>
-        // --- CUSTOM TOAST BİLDİRİM SİSTEMİ (alert() yerine kullanılacak) ---
+        // --- CUSTOM TOAST BİLDİRİM SİSTEMİ ---
         function showToast(message, type = 'error') {
             const container = document.getElementById('toastContainer');
             const toast = document.createElement('div');
@@ -254,7 +258,7 @@
                 if (remember) {
                     localStorage.setItem('mkds_session_active', 'true');
                 } else {
-                    sessionStorage.setItem('mkds_session_active', 'true'); // Sadece aktif sekmeye özel kaydeder
+                    sessionStorage.setItem('mkds_session_active', 'true');
                 }
                 showApp();
                 showToast('Giriş başarılı, sisteme yönlendiriliyorsunuz.', 'success');
@@ -271,7 +275,6 @@
             setTimeout(() => {
                 loginContainer.style.display = 'none';
                 appContainer.style.display = 'block';
-                // Animasyonu tetiklemek için reflow (tarayıcı yenilemesi)
                 void appContainer.offsetWidth;
                 appContainer.style.opacity = '1';
             }, 300);
@@ -310,8 +313,6 @@
             'Tüm': 'Tanımsız Ay'
         };
 
-        const ignoredKeywords = ["YEMEK", "IFTAR", "GOMLEK", "KRAVAT", "PLAKET", "YANLIS", "IADE"];
-
         let parsedData = []; 
         let activeBankMonths = new Set(); 
         let enabledMonths = new Set(); 
@@ -333,6 +334,108 @@
         function toggleAll(source) {
             const checkboxes = document.querySelectorAll('.row-checkbox');
             for(let i=0; i<checkboxes.length; i++) { checkboxes[i].checked = source.checked; }
+        }
+
+        // --- EKSTRE KONTROL FONKSİYONU ---
+        async function verifyBankStatement() {
+            const excelFile = document.getElementById('excelFile').files[0];
+            if (!excelFile) { showToast("Lütfen sadece Banka Hesap Ekstresini yükleyin.", "warning"); return; }
+            
+            const overlay = document.getElementById('loadingOverlay');
+            overlay.style.display = 'flex';
+            document.getElementById('loadingText').innerText = "EKSTRE KONTROL EDİLİYOR...";
+            
+            try {
+                let knownNames = Object.keys(taxRatios);
+                const pdfFiles = document.getElementById('pdfFiles').files;
+                
+                // Eğer PDF yüklenmişse oradaki isimleri de okuyup eşleştirme havuzuna katalım
+                if(pdfFiles.length > 0) {
+                    for (let i = 0; i < pdfFiles.length; i++) {
+                        const file = pdfFiles[i];
+                        const arrayBuffer = await file.arrayBuffer();
+                        const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+                        let fullText = '';
+                        for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+                            const page = await pdf.getPage(pageNum);
+                            const textContent = await page.getTextContent();
+                            fullText += textContent.items.map(s => s.str).join(' ') + ' ';
+                        }
+                        const cleanText = fullText.replace(/\s+/g, ' ');
+                        let nameMatch = cleanText.match(/Adı:\s*([A-ZÇĞİÖŞÜ ]+?)\s+(?:Reddiyat|T\.C|Bilirkişi|YIL)/i);
+                        let personName = nameMatch && nameMatch[1] ? nameMatch[1].trim() : file.name.replace(/_\d+/g, '').replace('.pdf', '').replace(/[^a-zA-ZçğıöşüÇĞİÖŞÜ ]/g, ' ').trim().toLocaleUpperCase('tr-TR');
+                        const normName = normalizeString(personName);
+                        if(!knownNames.includes(normName)) knownNames.push(normName);
+                    }
+                }
+
+                // Excel Okuma
+                const data = await excelFile.arrayBuffer();
+                const workbook = XLSX.read(data, { type: 'array' });
+                const rows = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { header: 1 });
+                let headerIdx = -1, colMap = {};
+                for (let i = 0; i < Math.min(20, rows.length); i++) {
+                    const rowStr = rows[i].join(' ').toUpperCase();
+                    if ((rowStr.includes('TUTAR') || rowStr.includes('ALACAK')) && rowStr.includes('AÇIKLAMA')) {
+                        headerIdx = i;
+                        rows[i].forEach((col, idx) => { if(col) colMap[col.toString().trim().toUpperCase()] = idx; });
+                        break;
+                    }
+                }
+
+                let exportArr = [];
+                if (headerIdx !== -1) {
+                    const dateIdx = colMap['İŞLEM TARİHİ'] !== undefined ? colMap['İŞLEM TARİHİ'] : colMap['TARİH'];
+                    const tutarIdx = colMap['TUTAR'] !== undefined ? colMap['TUTAR'] : colMap['ALACAK'];
+                    const descIdx = colMap['AÇIKLAMA'];
+                    const baIdx = colMap['B/A'];
+                    
+                    for (let i = headerIdx + 1; i < rows.length; i++) {
+                        const row = rows[i];
+                        if(!row || row.length === 0) continue;
+                        let tutar = row[tutarIdx];
+                        let desc = row[descIdx] ? row[descIdx].toString() : '';
+                        let islemTarihi = row[dateIdx] ? row[dateIdx].toString() : '';
+                        let ba = baIdx !== undefined ? row[baIdx] : null;
+                        
+                        if (typeof tutar === 'string') tutar = parseFloat(tutar.replace(/\./g, '').replace(',', '.'));
+                        if (!tutar || tutar <= 0 || (ba && ba.toString().toUpperCase().trim() === 'B')) continue;
+                        
+                        const normDesc = normalizeString(desc);
+                        // BOŞLUKSUZ ARAMA İÇİN
+                        const normDescNoSpace = normDesc.replace(/\s+/g, '');
+                        
+                        let matchedPerson = "EŞLEŞMEDİ";
+                        for (let name of knownNames) {
+                            // BOŞLUKSUZ KARŞILAŞTIRMA (HİLMİMUFTUOGLU vs HİLMİ MÜFTÜOĞLU uyumu için)
+                            let nameNoSpace = name.replace(/\s+/g, '');
+                            if (normDescNoSpace.includes(nameNoSpace)) { matchedPerson = name; break; }
+                        }
+
+                        exportArr.push({
+                            "İşlem Tarihi": islemTarihi,
+                            "Tutar": tutar,
+                            "Banka Açıklaması (Orijinal)": desc,
+                            "Sistem Eşleşmesi (Bulunan Kişi)": matchedPerson,
+                            "Durum Detayı": matchedPerson === "EŞLEŞMEDİ" ? "Tanımsız İsim!" : "Başarılı"
+                        });
+                    }
+                } else {
+                    throw new Error("Excel sütunları (Tutar, Açıklama vb.) bulunamadı.");
+                }
+
+                const ws = XLSX.utils.json_to_sheet(exportArr); 
+                const wb = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(wb, ws, "KontrolRaporu"); 
+                XLSX.writeFile(wb, "Banka_Ekstre_Cozumleme.xlsx");
+                
+                showToast("Çözümleme Raporu Excel olarak indirildi.", "success");
+            } catch (error) { 
+                showToast("Hata: " + error.message, "error"); 
+            } finally { 
+                document.getElementById('loadingText').innerText = "DOSYALAR ANALİZ EDİLİYOR...";
+                overlay.style.display = 'none'; 
+            }
         }
 
         async function processFiles() {
@@ -396,9 +499,8 @@
                             if (!tutar || tutar <= 0 || (ba && ba.toString().toUpperCase().trim() === 'B')) continue;
                             
                             const normDesc = normalizeString(desc);
-                            let skipRow = false;
-                            for (let word of ignoredKeywords) { if (normDesc.includes(word)) { skipRow = true; break; } }
-                            if (skipRow) continue; 
+                            // BOŞLUKSUZ ARAMA İÇİN
+                            const normDescNoSpace = normDesc.replace(/\s+/g, '');
 
                             let monthCode = 'Tüm';
                             let dateMatch = islemTarihi.match(/(\d{2})[\/\.-](\d{2})[\/\.-](\d{4})/);
@@ -408,13 +510,17 @@
                                 enabledMonths.add(monthCode); 
                             }
                             
-                            // Eşleştirme (TaxRatios üzerinden kontrol ederek Reddiyatı olmayanları da map'e ekle)
+                            // Eşleştirme (BOŞLUKSUZ KARŞILAŞTIRMA MANTIĞI)
                             let matchedPerson = null;
-                            for (let key in personnelMap) { if (normDesc.includes(key)) { matchedPerson = personnelMap[key]; break; } }
+                            for (let key in personnelMap) { 
+                                let keyNoSpace = key.replace(/\s+/g, '');
+                                if (normDescNoSpace.includes(keyNoSpace)) { matchedPerson = personnelMap[key]; break; } 
+                            }
                             
                             if (!matchedPerson) {
                                 for (let key in taxRatios) {
-                                    if (normDesc.includes(key)) {
+                                    let keyNoSpace = key.replace(/\s+/g, '');
+                                    if (normDescNoSpace.includes(keyNoSpace)) {
                                         personnelMap[key] = { originalName: key, normName: key, brutTotal: 0, bankAylik: {} };
                                         matchedPerson = personnelMap[key];
                                         break;
