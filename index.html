@@ -119,6 +119,9 @@
                 <p class="text-slate-500 mt-1 text-lg font-medium uppercase tracking-tight italic">Dinamik Pay Denetim ve Mutabakat Sistemi</p>
             </div>
             <div class="flex gap-3 flex-wrap justify-center">
+                <button onclick="saveSessionToExcel()" class="btn-action bg-blue-600 hover:bg-blue-700 shadow-lg" id="btnSaveSession" style="display: none;">
+                    💾 HESABI KAYDET
+                </button>
                 <button onclick="downloadSelectedRows()" class="btn-action bg-amber-500 hover:bg-amber-600 shadow-lg" id="btnJpeg" style="display: none;">
                     📸 SEÇİLENLERİ JPEG İNDİR
                 </button>
@@ -133,23 +136,32 @@
                 <h2 class="text-xl font-black text-slate-800 uppercase tracking-tighter mb-6 flex items-center gap-2">
                     📂 Veri Yükleme ve Analiz Merkezi
                 </h2>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
-                    <div class="upload-area p-6 rounded-xl relative">
-                        <label class="block text-sm font-black text-slate-700 mb-2 uppercase">1. Reddiyat PDF Dosyaları</label>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+                    <div class="upload-area p-6 rounded-xl relative border-indigo-200">
+                        <label class="block text-sm font-black text-indigo-800 mb-2 uppercase">1. Reddiyat PDF Dosyaları</label>
                         <p class="text-xs text-slate-500 mb-4 font-semibold">Tüm reddiyat PDF'lerini topluca seçin.</p>
                         <input type="file" id="pdfFiles" multiple accept=".pdf" class="block w-full text-sm text-slate-500 file:mr-4 file:py-2.5 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-black file:bg-indigo-100 file:text-indigo-700 hover:file:bg-indigo-200 transition-all cursor-pointer">
                     </div>
                     
-                    <div class="upload-area p-6 rounded-xl relative">
-                        <label class="block text-sm font-black text-slate-700 mb-2 uppercase">2. Banka Hesap Ekstresi</label>
+                    <div class="upload-area p-6 rounded-xl relative border-emerald-200">
+                        <label class="block text-sm font-black text-emerald-800 mb-2 uppercase">2. Banka Hesap Ekstresi</label>
                         <p class="text-xs text-slate-500 mb-4 font-semibold">Müdürlük ekstresini yükleyin (.xlsx, .csv).</p>
                         <input type="file" id="excelFile" accept=".csv, .xlsx, .xls" class="block w-full text-sm text-slate-500 file:mr-4 file:py-2.5 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-black file:bg-emerald-100 file:text-emerald-700 hover:file:bg-emerald-200 transition-all cursor-pointer">
                     </div>
+
+                    <div class="upload-area p-6 rounded-xl relative border-blue-200 bg-blue-50/50">
+                        <label class="block text-sm font-black text-blue-800 mb-2 uppercase">3. Kayıtlı Hesap Yükle (Yedek)</label>
+                        <p class="text-xs text-slate-500 mb-4 font-semibold">Önceden kaydettiğiniz tabloyu buraya yükleyin.</p>
+                        <input type="file" id="savedSessionFile" accept=".xlsx" class="block w-full text-sm text-slate-500 file:mr-4 file:py-2.5 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-black file:bg-blue-100 file:text-blue-700 hover:file:bg-blue-200 transition-all cursor-pointer">
+                    </div>
                 </div>
                 
-                <div class="mt-8 flex flex-col sm:flex-row justify-end gap-4">
+                <div class="mt-8 flex flex-col sm:flex-row justify-end gap-4 border-t border-slate-100 pt-6">
+                    <button onclick="loadSession()" class="btn-action bg-blue-500 hover:bg-blue-600 !px-6 !py-4 !text-base shadow-xl text-center justify-center">
+                        📂 KAYDEDİLENİ YÜKLE
+                    </button>
                     <button onclick="verifyBankStatement()" class="btn-action bg-slate-600 hover:bg-slate-700 !px-6 !py-4 !text-base shadow-xl text-center justify-center">
-                        🔍 EKSTREYİ KONTROL ET (EXCEL)
+                        🔍 EKSTREYİ KONTROL ET
                     </button>
                     <button onclick="processFiles()" class="btn-action bg-indigo-600 hover:bg-indigo-700 !px-8 !py-4 !text-base shadow-xl text-center justify-center">
                         ⚙️ SİSTEME YÜKLE VE ANALİZ ET
@@ -282,7 +294,6 @@
 
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
 
-        // Artık vergi oranlarına gerek yok, direkt PDF'ten net tutarı hesaplayacağız. 
         // İsimleri sadece ekstreden isim bulamazsa diye yedek liste olarak tutuyoruz.
         const knownNamesList = [
             "MEHMET AKDENIZ", "SITKI KIZILOLUK", "MUMIN AKDOGAN",
@@ -338,6 +349,93 @@
             for(let i=0; i<checkboxes.length; i++) { checkboxes[i].checked = source.checked; }
         }
 
+        // --- SON HESABI EXCEL OLARAK KAYDETME ---
+        function saveSessionToExcel() {
+            if(parsedData.length === 0) { showToast("Kaydedilecek veri yok.", "warning"); return; }
+            let exportArr = [];
+            let monthsArr = Array.from(activeBankMonths).sort();
+            
+            parsedData.forEach(p => {
+                let row = {
+                    "Kimlik": p.normName,
+                    "İsim": p.originalName,
+                    "Brüt Toplam": p.brutTotal,
+                    "Net Toplam": p.netTotal,
+                    "Önceki Eksik": p.manuelEksik || 0
+                };
+                monthsArr.forEach(m => {
+                    row[`Banka_${m}`] = p.bankAylik[m] || 0;
+                });
+                exportArr.push(row);
+            });
+            
+            const ws = XLSX.utils.json_to_sheet(exportArr);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, "KayıtlıHesap");
+            XLSX.writeFile(wb, "Pay_Denetim_Kayitli_Hesap.xlsx");
+            showToast("Hesap yedeği başarıyla indirildi.", "success");
+        }
+
+        // --- KAYDEDİLMİŞ HESABI GERİ YÜKLEME ---
+        async function loadSession() {
+            const fileInput = document.getElementById('savedSessionFile');
+            const file = fileInput.files[0];
+            
+            if(!file) { showToast("Lütfen yüklemek için kayıtlı hesap dosyasını seçin.", "warning"); return; }
+            
+            const overlay = document.getElementById('loadingOverlay');
+            overlay.style.display = 'flex';
+            document.getElementById('loadingText').innerText = "HESAP YÜKLENİYOR...";
+            
+            try {
+                const data = await file.arrayBuffer();
+                const workbook = XLSX.read(data, { type: 'array' });
+                const rows = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
+                
+                parsedData = [];
+                activeBankMonths.clear();
+                enabledMonths.clear();
+                
+                rows.forEach(row => {
+                    let p = {
+                        normName: row["Kimlik"] || row["İsim"],
+                        originalName: row["İsim"],
+                        brutTotal: parseFloat(row["Brüt Toplam"]) || 0,
+                        netTotal: parseFloat(row["Net Toplam"]) || 0,
+                        manuelEksik: parseFloat(row["Önceki Eksik"]) || 0,
+                        bankAylik: {}
+                    };
+                    
+                    Object.keys(row).forEach(key => {
+                        if (key.startsWith("Banka_")) {
+                            let m = key.replace("Banka_", "");
+                            p.bankAylik[m] = parseFloat(row[key]) || 0;
+                            activeBankMonths.add(m);
+                            enabledMonths.add(m);
+                        }
+                    });
+                    parsedData.push(p);
+                });
+                
+                createMonthSelector();
+                document.getElementById('upload-section').style.display = 'none';
+                document.getElementById('results-container').style.display = 'block';
+                document.getElementById('btnExport').style.display = 'inline-flex';
+                document.getElementById('btnJpeg').style.display = 'inline-flex';
+                document.getElementById('btnSaveSession').style.display = 'inline-flex';
+                
+                renderTable();
+                showToast("Kayıtlı hesap başarıyla yüklendi.", "success");
+                fileInput.value = ""; // Seçimi sıfırla
+            } catch(e) {
+                showToast("Hesap yüklenirken hata oluştu.", "error");
+                console.error(e);
+            } finally {
+                document.getElementById('loadingText').innerText = "DOSYALAR ANALİZ EDİLİYOR...";
+                overlay.style.display = 'none';
+            }
+        }
+
         // --- EKSTRE KONTROL FONKSİYONU ---
         async function verifyBankStatement() {
             const excelFile = document.getElementById('excelFile').files[0];
@@ -351,7 +449,6 @@
                 let knownNames = [...knownNamesList];
                 const pdfFiles = document.getElementById('pdfFiles').files;
                 
-                // Eğer PDF yüklenmişse oradaki isimleri de okuyup eşleştirme havuzuna katalım
                 if(pdfFiles.length > 0) {
                     for (let i = 0; i < pdfFiles.length; i++) {
                         const file = pdfFiles[i];
@@ -371,7 +468,6 @@
                     }
                 }
 
-                // Excel Okuma
                 const data = await excelFile.arrayBuffer();
                 const workbook = XLSX.read(data, { type: 'array' });
                 const rows = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { header: 1 });
@@ -404,12 +500,10 @@
                         if (!tutar || tutar <= 0 || (ba && ba.toString().toUpperCase().trim() === 'B')) continue;
                         
                         const normDesc = normalizeString(desc);
-                        // BOŞLUKSUZ ARAMA İÇİN
                         const normDescNoSpace = normDesc.replace(/\s+/g, '');
                         
                         let matchedPerson = "EŞLEŞMEDİ";
                         for (let name of knownNames) {
-                            // BOŞLUKSUZ KARŞILAŞTIRMA (HİLMİMUFTUOGLU vs HİLMİ MÜFTÜOĞLU uyumu için)
                             let nameNoSpace = name.replace(/\s+/g, '');
                             if (normDescNoSpace.includes(nameNoSpace)) { matchedPerson = name; break; }
                         }
@@ -448,7 +542,7 @@
             overlay.style.display = 'flex';
             try {
                 let personnelMap = {};
-                // 1. PDF Analizi
+                
                 for (let i = 0; i < pdfFiles.length; i++) {
                     const file = pdfFiles[i];
                     const arrayBuffer = await file.arrayBuffer();
@@ -464,10 +558,8 @@
                     let personName = nameMatch && nameMatch[1] ? nameMatch[1].trim() : file.name.replace(/_\d+/g, '').replace('.pdf', '').replace(/[^a-zA-ZçğıöşüÇĞİÖŞÜ ]/g, ' ').trim().toLocaleUpperCase('tr-TR');
                     const normName = normalizeString(personName);
                     
-                    // netTotal değişkenini sisteme dahil ettik
                     if(!personnelMap[normName]) personnelMap[normName] = { originalName: personName, normName: normName, brutTotal: 0, netTotal: 0, bankAylik: {} };
                     
-                    // GENEL TOPLAM satırındaki 3 sayıyı da (Brüt, Gelir Vergisi, Damga Vergisi) yakala
                     let totalMatch = cleanText.match(/Genel Toplam[^\d]*([\d]+(?:[.,]\d+)*)[^\d]*([\d]+(?:[.,]\d+)*)[^\d]*([\d]+(?:[.,]\d+)*)/i);
                     
                     if (totalMatch) {
@@ -476,14 +568,13 @@
                         let damgaV = parseFloat(totalMatch[3].replace(/\./g, '').replace(',', '.'));
                         
                         personnelMap[normName].brutTotal += brut;
-                        personnelMap[normName].netTotal += (brut - gelirV - damgaV); // Vergilier düşüldü, net bulundu.
+                        personnelMap[normName].netTotal += (brut - gelirV - damgaV);
                     } else {
-                        // Eğer tablo formatı farklıysa ve sadece 1 sayı (Brüt) bulabilirse varsayılan kesinti yedek planı
                         let singleMatch = cleanText.match(/Genel Toplam[^\d]*([\d]+(?:[.,]\d+)*)/i);
                         if (singleMatch) {
                             let brut = parseFloat(singleMatch[1].replace(/\./g, '').replace(',', '.'));
                             personnelMap[normName].brutTotal += brut;
-                            personnelMap[normName].netTotal += brut * 0.842; // Yaklaşık eski %15.8 kesinti
+                            personnelMap[normName].netTotal += brut * 0.842; 
                         }
                     }
                 }
@@ -491,7 +582,6 @@
                 activeBankMonths.clear();
                 enabledMonths.clear();
 
-                // 2. Banka Ekstresi Analizi
                 if (excelFile) {
                     const data = await excelFile.arrayBuffer();
                     const workbook = XLSX.read(data, { type: 'array' });
@@ -521,7 +611,6 @@
                             if (!tutar || tutar <= 0 || (ba && ba.toString().toUpperCase().trim() === 'B')) continue;
                             
                             const normDesc = normalizeString(desc);
-                            // BOŞLUKSUZ ARAMA İÇİN
                             const normDescNoSpace = normDesc.replace(/\s+/g, '');
 
                             let monthCode = 'Tüm';
@@ -532,7 +621,6 @@
                                 enabledMonths.add(monthCode); 
                             }
                             
-                            // Eşleştirme (BOŞLUKSUZ KARŞILAŞTIRMA MANTIĞI)
                             let matchedPerson = null;
                             for (let key in personnelMap) { 
                                 let keyNoSpace = key.replace(/\s+/g, '');
@@ -563,6 +651,7 @@
                 document.getElementById('results-container').style.display = 'block';
                 document.getElementById('btnExport').style.display = 'inline-flex';
                 document.getElementById('btnJpeg').style.display = 'inline-flex';
+                document.getElementById('btnSaveSession').style.display = 'inline-flex';
                 renderTable();
             } catch (error) { showToast("Hata: " + error.message, "error"); } finally { overlay.style.display = 'none'; }
         }
@@ -597,16 +686,17 @@
             head.innerHTML = headHTML;
 
             const filteredData = parsedData.filter(p => p.originalName.toLocaleUpperCase('tr-TR').includes(filterText));
-            const validData = filteredData.filter(p => p.brutTotal > 0);
-            const missingData = filteredData.filter(p => p.brutTotal === 0);
+            const validData = filteredData.filter(p => p.brutTotal > 0 || Object.keys(p.bankAylik).length > 0 || p.manuelEksik > 0);
+            const missingData = filteredData.filter(p => p.brutTotal === 0 && Object.keys(p.bankAylik).length > 0);
 
             if(filteredData.length === 0) { body.innerHTML = `<tr><td colspan="30" class="p-8 text-center text-slate-400 italic">Sonuç bulunamadı.</td></tr>`; return; }
 
             let tBrut = 0, tPay = 0, tBanka = 0, tOekiEksik = 0, totalBankAll = 0;
 
-            // 1. ANA TABLO
             validData.forEach((p) => {
-                const net = p.netTotal; // Artık vergi hesabı yok, PDF'ten hazır geldi!
+                if (p.brutTotal === 0 && Object.keys(p.bankAylik).length > 0) return; 
+
+                const net = p.netTotal; 
                 const pay = net * 0.30;
                 let bankaCells = '', totalBankRow = 0;
                 displayedBankMonths.forEach(m => { const val = p.bankAylik[m] || 0; totalBankRow += val; bankaCells += `<td class="px-3 py-3 border-r border-slate-100 text-center font-bold text-emerald-600 bg-emerald-50/30">${val > 0 ? formatTLShort(val) : '-'}</td>`; });
@@ -630,10 +720,8 @@
                 </tr>`;
             });
 
-            // Alt Toplam
             body.innerHTML += `<tr class="bg-slate-200 border-t-2 border-slate-300"><td colspan="2" class="px-5 py-4 font-black text-slate-900 text-right uppercase border-r border-slate-300">GENEL TOPLAM</td><td class="px-3 py-4 font-black text-slate-800 text-center border-r border-slate-300">${formatTLShort(tBrut)}</td><td class="px-3 py-4 text-center border-r border-slate-300">-</td><td class="px-3 py-4 font-black text-indigo-800 text-center border-r border-slate-300 bg-indigo-100">${formatTLShort(tPay)}</td>${displayedBankMonths.map(()=>'<td class="border-r border-slate-300"></td>').join('')}<td class="px-3 py-4 font-black text-emerald-800 text-center border-r border-slate-300 bg-emerald-100">${formatTLShort(tBanka)}</td><td class="px-3 py-4 font-black text-amber-800 text-center border-r border-amber-300 bg-amber-200">${formatTLShort(tOekiEksik)}</td><td class="px-4 py-4 font-black text-rose-800 text-center bg-rose-200">${formatTLShort(Math.max(0, tPay + tOekiEksik - tBanka))}</td></tr>`;
 
-            // 2. KIRMIZI LİSTE (Reddiyatı 0 olan herkes)
             if (missingData.length > 0) {
                 body.innerHTML += `<tr class="bg-rose-600 text-white border-t-8 border-rose-800"><td colspan="${9 + displayedBankMonths.length}" class="px-5 py-3 font-black text-center uppercase tracking-widest text-sm">🔴 REDDİYATI BULUNMAYAN BİLİRKİŞİLER</td></tr>`;
                 missingData.forEach((p) => {
