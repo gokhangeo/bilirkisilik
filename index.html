@@ -245,7 +245,7 @@
         let ocrWorker = null;
 
         async function getOcrWorker() {
-            if (!ocrWorker) ocrWorker = await Tesseract.createWorker('tur');
+            if (!ocrWorker) ocrWorker = await Tesseract.createWorker('tur', 1, { langPath: new URL('tessdata', location.href).href });
             return ocrWorker;
         }
 
