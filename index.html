@@ -12,6 +12,8 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
     <!-- SheetJS for Reading Bank Excel/CSV & Exporting -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <!-- Taranmış (resim/TIF) PDF'ler için OCR -->
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
     
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;900&display=swap');
@@ -236,6 +238,78 @@
 
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
 
+        // --- PDF METİN OKUMA (metin katmanı yoksa OCR) ---
+        const NAME_RE = /Ad[ıiIl1]\s*[:;.]?\s*([A-ZÇĞİÖŞÜ ]+?)\s+(?:Reddiyat|T\.C|Bilirkişi|YIL)/i;
+        const KEY_RE = /GENEL\s*TOPLAM|Ad[ıiIl1]\s*[:;]/i;
+        const pdfSegmentCache = {};
+        let ocrWorker = null;
+
+        async function getOcrWorker() {
+            if (!ocrWorker) ocrWorker = await Tesseract.createWorker('tur');
+            return ocrWorker;
+        }
+
+        async function ocrPage(page, label) {
+            const worker = await getOcrWorker();
+            const viewport = page.getViewport({ scale: 2 });
+            const canvas = document.createElement('canvas');
+            canvas.width = viewport.width; canvas.height = viewport.height;
+            await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+            let best = '';
+            // Yan taranmış sayfalar için 0°, 90°, 270° denenir
+            for (const angle of [0, 90, 270]) {
+                document.getElementById('loadingText').innerText = `${label} OCR OKUNUYOR...`;
+                let src = canvas;
+                if (angle !== 0) {
+                    src = document.createElement('canvas');
+                    src.width = canvas.height; src.height = canvas.width;
+                    const ctx = src.getContext('2d');
+                    ctx.translate(src.width / 2, src.height / 2);
+                    ctx.rotate(angle * Math.PI / 180);
+                    ctx.drawImage(canvas, -canvas.width / 2, -canvas.height / 2);
+                }
+                const { data } = await worker.recognize(src);
+                const text = data.text || '';
+                if (KEY_RE.test(text)) return text;
+                if (text.length > best.length) best = text;
+            }
+            return best;
+        }
+
+        // PDF'i bilirkişi bazında parçalara ayırır: "Adı:" içeren her sayfa yeni kişi başlatır,
+        // içermeyen sayfa bir önceki kişinin devamı sayılır.
+        async function getPdfSegments(file, fileIdx, fileCount) {
+            const key = file.name + '|' + file.size + '|' + file.lastModified;
+            if (pdfSegmentCache[key]) return pdfSegmentCache[key];
+            const pdf = await pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
+            const segments = [];
+            for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+                const page = await pdf.getPage(pageNum);
+                const textContent = await page.getTextContent();
+                let text = textContent.items.map(s => s.str).join(' ');
+                if (text.replace(/\s/g, '').length < 20) {
+                    text = await ocrPage(page, `DOSYA ${fileIdx + 1}/${fileCount} - SAYFA ${pageNum}/${pdf.numPages}`);
+                }
+                text = text.replace(/\s+/g, ' ');
+                if (NAME_RE.test(text) || segments.length === 0) segments.push(text);
+                else segments[segments.length - 1] += ' ' + text;
+            }
+            return (pdfSegmentCache[key] = segments);
+        }
+
+        // "5000,00" -> 5000. OCR bazen virgülü atlar ("3400000"): tutarlar hep 2 kuruş haneli olduğundan son 2 hane kuruş sayılır.
+        function parseAmount(str) {
+            if (!/[.,]/.test(str) && str.length >= 3) return parseInt(str, 10) / 100;
+            return parseFloat(str.replace(/\./g, '').replace(',', '.'));
+        }
+
+        function segmentPersonName(cleanText, file, segCount) {
+            const nameMatch = cleanText.match(NAME_RE);
+            if (nameMatch && nameMatch[1]) return nameMatch[1].trim();
+            const fallback = file.name.replace(/_\d+/g, '').replace('.pdf', '').replace(/[^a-zA-ZçğıöşüÇĞİÖŞÜ ]/g, ' ').trim().toLocaleUpperCase('tr-TR');
+            return segCount > 1 ? null : fallback;
+        }
+
         // İsimleri sadece ekstreden isim bulamazsa diye yedek liste olarak tutuyoruz.
         const knownNamesList = [
             "MEHMET AKDENIZ", "SITKI KIZILOLUK", "MUMIN AKDOGAN",
@@ -401,20 +475,15 @@
                 if(pdfFiles.length > 0) {
                     for (let i = 0; i < pdfFiles.length; i++) {
                         const file = pdfFiles[i];
-                        const arrayBuffer = await file.arrayBuffer();
-                        const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-                        let fullText = '';
-                        for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-                            const page = await pdf.getPage(pageNum);
-                            const textContent = await page.getTextContent();
-                            fullText += textContent.items.map(s => s.str).join(' ') + ' ';
+                        const segments = await getPdfSegments(file, i, pdfFiles.length);
+                        for (const cleanText of segments) {
+                            const personName = segmentPersonName(cleanText, file, segments.length);
+                            if (!personName) continue;
+                            const normName = normalizeString(personName);
+                            if(!knownNames.includes(normName)) knownNames.push(normName);
                         }
-                        const cleanText = fullText.replace(/\s+/g, ' ');
-                        let nameMatch = cleanText.match(/Adı:\s*([A-ZÇĞİÖŞÜ ]+?)\s+(?:Reddiyat|T\.C|Bilirkişi|YIL)/i);
-                        let personName = nameMatch && nameMatch[1] ? nameMatch[1].trim() : file.name.replace(/_\d+/g, '').replace('.pdf', '').replace(/[^a-zA-ZçğıöşüÇĞİÖŞÜ ]/g, ' ').trim().toLocaleUpperCase('tr-TR');
-                        const normName = normalizeString(personName);
-                        if(!knownNames.includes(normName)) knownNames.push(normName);
                     }
+                    document.getElementById('loadingText').innerText = "EKSTRE KONTROL EDİLİYOR...";
                 }
 
                 const data = await excelFile.arrayBuffer();
@@ -494,37 +563,31 @@
                 
                 for (let i = 0; i < pdfFiles.length; i++) {
                     const file = pdfFiles[i];
-                    const arrayBuffer = await file.arrayBuffer();
-                    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-                    let fullText = '';
-                    for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-                        const page = await pdf.getPage(pageNum);
-                        const textContent = await page.getTextContent();
-                        fullText += textContent.items.map(s => s.str).join(' ') + ' ';
-                    }
-                    const cleanText = fullText.replace(/\s+/g, ' ');
-                    let nameMatch = cleanText.match(/Adı:\s*([A-ZÇĞİÖŞÜ ]+?)\s+(?:Reddiyat|T\.C|Bilirkişi|YIL)/i);
-                    let personName = nameMatch && nameMatch[1] ? nameMatch[1].trim() : file.name.replace(/_\d+/g, '').replace('.pdf', '').replace(/[^a-zA-ZçğıöşüÇĞİÖŞÜ ]/g, ' ').trim().toLocaleUpperCase('tr-TR');
+                    const segments = await getPdfSegments(file, i, pdfFiles.length);
+                    for (const cleanText of segments) {
+                    const personName = segmentPersonName(cleanText, file, segments.length);
+                    if (!personName) continue;
                     const normName = normalizeString(personName);
                     
                     if(!personnelMap[normName]) personnelMap[normName] = { originalName: personName, normName: normName, brutTotal: 0, netTotal: 0, bankAylik: {} };
                     
-                    let totalMatch = cleanText.match(/Genel Toplam[^\d]*([\d]+(?:[.,]\d+)*)[^\d]*([\d]+(?:[.,]\d+)*)[^\d]*([\d]+(?:[.,]\d+)*)/i);
+                    let totalMatch = cleanText.match(/Genel\s*Topla\S*[^\d]*([\d]+(?:[.,]\d+)*)[^\d]*([\d]+(?:[.,]\d+)*)[^\d]*([\d]+(?:[.,]\d+)*)/i);
                     
                     if (totalMatch) {
-                        let brut = parseFloat(totalMatch[1].replace(/\./g, '').replace(',', '.'));
-                        let gelirV = parseFloat(totalMatch[2].replace(/\./g, '').replace(',', '.'));
-                        let damgaV = parseFloat(totalMatch[3].replace(/\./g, '').replace(',', '.'));
+                        let brut = parseAmount(totalMatch[1]);
+                        let gelirV = parseAmount(totalMatch[2]);
+                        let damgaV = parseAmount(totalMatch[3]);
                         
                         personnelMap[normName].brutTotal += brut;
                         personnelMap[normName].netTotal += (brut - gelirV - damgaV);
                     } else {
-                        let singleMatch = cleanText.match(/Genel Toplam[^\d]*([\d]+(?:[.,]\d+)*)/i);
+                        let singleMatch = cleanText.match(/Genel\s*Topla\S*[^\d]*([\d]+(?:[.,]\d+)*)/i);
                         if (singleMatch) {
-                            let brut = parseFloat(singleMatch[1].replace(/\./g, '').replace(',', '.'));
+                            let brut = parseAmount(singleMatch[1]);
                             personnelMap[normName].brutTotal += brut;
                             personnelMap[normName].netTotal += brut * 0.842; 
                         }
+                    }
                     }
                 }
                 
