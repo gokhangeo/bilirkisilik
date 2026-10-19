@@ -239,7 +239,7 @@
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
 
         // --- PDF METİN OKUMA (metin katmanı yoksa OCR) ---
-        const NAME_RE = /Ad[ıiIl1]\s*[:;.]?\s*([A-ZÇĞİÖŞÜ ]+?)\s+(?:Reddiyat|T\.C|Bilirkişi|YIL)/i;
+        const NAME_RE = /Ad[ıiIl1]\s*[:;.]?\s*([A-ZÇĞİÖŞÜ ]+?)\s+(?:Reddiyat|T\.C|Bilirkişi|YIL\b)/i;
         const KEY_RE = /GENEL\s*TOPLAM|Ad[ıiIl1]\s*[:;]/i;
         const pdfSegmentCache = {};
         let ocrWorker = null;
@@ -297,10 +297,38 @@
             return (pdfSegmentCache[key] = segments);
         }
 
-        // "5000,00" -> 5000. OCR bazen virgülü atlar ("3400000"): tutarlar hep 2 kuruş haneli olduğundan son 2 hane kuruş sayılır.
-        function parseAmount(str) {
-            if (!/[.,]/.test(str) && str.length >= 3) return parseInt(str, 10) / 100;
-            return parseFloat(str.replace(/\./g, '').replace(',', '.'));
+        // OCR'ın okuduğu tutar için olası değerler: virgül nokta okunabilir, kuruş ayırıcısı ya da kuruş hanesi düşebilir,
+        // tablo çizgisi başa "1" olarak eklenebilir.
+        function amountCandidates(str) {
+            const clean = str.replace(/[^\d.,]/g, '');
+            const variants = [clean];
+            if (/^1\d{4,}/.test(clean)) variants.push(clean.slice(1));
+            const vals = new Set();
+            variants.forEach(v => {
+                const m = v.match(/^(.*)[.,](\d{2})$/);
+                if (m) { vals.add(parseFloat(m[1].replace(/[.,]/g, '') + '.' + m[2])); return; }
+                const digits = parseInt(v.replace(/[.,]/g, ''), 10);
+                if (isNaN(digits)) return;
+                vals.add(digits); vals.add(digits / 10); vals.add(digits / 100);
+            });
+            return [...vals].filter(v => !isNaN(v));
+        }
+
+        const DAMGA_ORANI = 0.00759; // Damga vergisi brütün binde 7,59'u
+
+        // GENEL TOPLAM satırındaki üç tutarı birbiriyle sağlamasını yaparak seçer.
+        // Damga vergisi brütün en fazla binde 7,59'u, gelir vergisi en fazla %35'i olabilir.
+        // Damga oranı binde 6'nın altında kalıyorsa (bazı satırlar vergisiz olabilir) sonuç elle kontrole işaretlenir.
+        function pickTotals(bStr, gStr, dStr) {
+            let best = null;
+            for (const b of amountCandidates(bStr)) for (const g of amountCandidates(gStr)) for (const d of amountCandidates(dStr)) {
+                if (b === 0) { if (g === 0 && d === 0) return { brut: 0, gelirV: 0, damgaV: 0, kontrol: false }; continue; }
+                const dr = d / b, gr = g / b;
+                if (dr > 0.0077 || gr > 0.35) continue;
+                const score = Math.abs(dr - DAMGA_ORANI);
+                if (!best || score < best.score) best = { brut: b, gelirV: g, damgaV: d, score, kontrol: dr < 0.006 };
+            }
+            return best;
         }
 
         function segmentPersonName(cleanText, file, segCount) {
@@ -569,24 +597,18 @@
                     if (!personName) continue;
                     const normName = normalizeString(personName);
                     
-                    if(!personnelMap[normName]) personnelMap[normName] = { originalName: personName, normName: normName, brutTotal: 0, netTotal: 0, bankAylik: {} };
+                    if(!personnelMap[normName]) personnelMap[normName] = { originalName: personName, normName: normName, brutTotal: 0, netTotal: 0, bankAylik: {}, kontrol: false };
                     
                     let totalMatch = cleanText.match(/Genel\s*Topla\S*[^\d]*([\d]+(?:[.,]\d+)*)[^\d]*([\d]+(?:[.,]\d+)*)[^\d]*([\d]+(?:[.,]\d+)*)/i);
                     
-                    if (totalMatch) {
-                        let brut = parseAmount(totalMatch[1]);
-                        let gelirV = parseAmount(totalMatch[2]);
-                        let damgaV = parseAmount(totalMatch[3]);
-                        
-                        personnelMap[normName].brutTotal += brut;
-                        personnelMap[normName].netTotal += (brut - gelirV - damgaV);
+                    const totals = totalMatch ? pickTotals(totalMatch[1], totalMatch[2], totalMatch[3]) : null;
+                    if (totals) {
+                        personnelMap[normName].brutTotal += totals.brut;
+                        personnelMap[normName].netTotal += (totals.brut - totals.gelirV - totals.damgaV);
+                        if (totals.kontrol) personnelMap[normName].kontrol = true;
                     } else {
-                        let singleMatch = cleanText.match(/Genel\s*Topla\S*[^\d]*([\d]+(?:[.,]\d+)*)/i);
-                        if (singleMatch) {
-                            let brut = parseAmount(singleMatch[1]);
-                            personnelMap[normName].brutTotal += brut;
-                            personnelMap[normName].netTotal += brut * 0.842; 
-                        }
+                        // Toplam satırı okunamadı ya da tutarlar birbirini tutmuyor: tahmin yazmak yerine işaretle
+                        personnelMap[normName].kontrol = true;
                     }
                     }
                 }
@@ -722,7 +744,7 @@
                 
                 htmlContent += `<tr class="hover:bg-indigo-50 transition-colors bg-white" data-name="${p.originalName}">
                     <td class="px-2 py-3 text-center border-r border-slate-100 no-print-col"><input type="checkbox" class="row-checkbox custom-checkbox mt-1"></td>
-                    <td class="px-5 py-4 font-black text-slate-800 text-xs border-r border-slate-100">${p.originalName}</td>
+                    <td class="px-5 py-4 font-black text-slate-800 text-xs border-r border-slate-100">${p.originalName}${p.kontrol ? ' <span class="text-red-600" title="OCR tutarı doğrulanamadı, PDF ile elle kontrol edin">⚠ ELLE KONTROL</span>' : ''}</td>
                     <td class="px-3 py-3 border-r border-slate-200 text-center font-black text-slate-700 bg-slate-100/50">${formatTLShort(p.brutTotal)}</td>
                     <td class="px-3 py-3 border-r border-slate-200 text-center font-bold text-slate-500 text-xs bg-slate-50">${formatTLShort(net)}</td>
                     <td class="px-3 py-3 border-r border-slate-200 text-center font-black text-indigo-700 bg-indigo-50/50">${formatTLShort(pay)}</td>
@@ -838,7 +860,8 @@
                     "Bilirkişi Adı": p.originalName, 
                     "T. Reddiyat (Brüt)": p.brutTotal, 
                     "T. Reddiyat (Net)": parseFloat(net.toFixed(2)), 
-                    "Beklenen %30 Pay": parseFloat(pay.toFixed(2)) 
+                    "Beklenen %30 Pay": parseFloat(pay.toFixed(2)),
+                    "OCR Durumu": p.kontrol ? "ELLE KONTROL" : ""
                 };
                 
                 let tBank = 0; sortedMonths.forEach(m => { const v = p.bankAylik[m] || 0; tBank += v; row[`${aylarMap[m]||m} Banka`] = v; });
